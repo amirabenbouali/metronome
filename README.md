@@ -6,7 +6,7 @@ City pulse dashboard: traffic, transit, weather, and event data fused into a per
 
 - **Backend**: FastAPI (Python), async SQLAlchemy
 - **Database**: Postgres + PostGIS
-- **Frontend**: React + Vite + TypeScript, Mapbox GL
+- **Frontend**: React + Vite + TypeScript, MapLibre GL (tiles via [OpenFreeMap](https://openfreemap.org), free and no API key required)
 
 ## Local development
 
@@ -32,7 +32,7 @@ Health check: `curl http://localhost:8000/health`
 
 ```bash
 cd frontend
-cp .env.example .env   # set VITE_MAPBOX_TOKEN
+cp .env.example .env
 npm install
 npm run dev
 ```

@@ -1,10 +1,11 @@
-import mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef } from "react";
 
 import type { ZoneScore } from "../types";
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN ?? "";
+// Free, no-signup vector tiles + style. See https://openfreemap.org
+const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 const ZONES_SOURCE_ID = "zones";
 
@@ -27,7 +28,7 @@ function toFeatureCollection(zones: ZoneScore[]): GeoJSON.FeatureCollection {
   };
 }
 
-function addZoneLayers(map: mapboxgl.Map) {
+function addZoneLayers(map: maplibregl.Map) {
   if (map.getSource(ZONES_SOURCE_ID)) return;
 
   map.addSource(ZONES_SOURCE_ID, {
@@ -69,7 +70,7 @@ function addZoneLayers(map: mapboxgl.Map) {
     },
   });
 
-  const popup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false });
+  const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
 
   map.on("mousemove", "zones-fill", (e) => {
     map.getCanvas().style.cursor = "pointer";
@@ -98,17 +99,24 @@ interface MapViewProps {
 
 export default function MapView({ zones }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
   const loadedRef = useRef(false);
+  // Always holds the latest zones, so the "load" handler (attached once,
+  // long before the first real fetch resolves) never reads a stale closure.
+  const zonesRef = useRef<ZoneScore[]>(zones);
+  zonesRef.current = zones;
+
+  const syncZones = (map: maplibregl.Map) => {
+    const source = map.getSource(ZONES_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
+    source?.setData(toFeatureCollection(zonesRef.current));
+  };
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    mapboxgl.accessToken = MAPBOX_TOKEN;
-
-    const map = new mapboxgl.Map({
+    const map = new maplibregl.Map({
       container: containerRef.current,
-      style: "mapbox://styles/mapbox/dark-v11",
+      style: MAP_STYLE,
       center: [-73.9857, 40.7484],
       zoom: 11,
     });
@@ -117,8 +125,7 @@ export default function MapView({ zones }: MapViewProps) {
     map.on("load", () => {
       loadedRef.current = true;
       addZoneLayers(map);
-      const source = map.getSource(ZONES_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
-      source?.setData(toFeatureCollection(zones));
+      syncZones(map);
     });
 
     return () => {
@@ -132,17 +139,8 @@ export default function MapView({ zones }: MapViewProps) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    const source = map.getSource(ZONES_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
-    source?.setData(toFeatureCollection(zones));
+    syncZones(map);
   }, [zones]);
-
-  if (!MAPBOX_TOKEN) {
-    return (
-      <div style={{ padding: "1rem" }}>
-        Set <code>VITE_MAPBOX_TOKEN</code> in <code>frontend/.env</code> to render the map.
-      </div>
-    );
-  }
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
