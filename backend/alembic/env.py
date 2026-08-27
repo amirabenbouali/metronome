@@ -6,6 +6,8 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from geoalchemy2.alembic_helpers import include_object as geoalchemy2_include_object
+from geoalchemy2.alembic_helpers import render_item, writer
 
 from app.core.config import settings
 from app.db.base import Base
@@ -22,6 +24,27 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+# Tables belonging to the postgis_tiger_geocoder and postgis_topology extensions.
+# Their `tiger`/`topology` schemas are on this DB's search_path, so plain
+# (schema=None) reflection flattens them in alongside our own tables with no
+# schema attribute to filter on - so we exclude by name instead.
+_EXTENSION_TABLES = {
+    "topology", "layer", "featnames", "geocode_settings", "geocode_settings_default",
+    "direction_lookup", "secondary_unit_lookup", "state_lookup", "street_type_lookup",
+    "place_lookup", "county_lookup", "countysub_lookup", "zip_lookup_all", "zip_lookup_base",
+    "zip_lookup", "county", "state", "place", "zip_state", "zip_state_loc", "cousub",
+    "edges", "addrfeat", "addr", "zcta5", "tabblock20", "faces", "loader_platform",
+    "loader_variables", "loader_lookuptables", "tract", "tabblock", "bg",
+    "pagc_gaz", "pagc_lex", "pagc_rules",
+}
+
+
+def include_object(obj, name, obj_type, reflected, compare_to):
+    """Skip PostGIS's own tiger/topology extension tables and public.spatial_ref_sys."""
+    if obj_type == "table" and name in _EXTENSION_TABLES:
+        return False
+    return geoalchemy2_include_object(obj, name, obj_type, reflected, compare_to)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -47,6 +70,9 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
+        render_item=render_item,
+        process_revision_directives=writer,
     )
 
     with context.begin_transaction():
@@ -54,7 +80,13 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+        render_item=render_item,
+        process_revision_directives=writer,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
