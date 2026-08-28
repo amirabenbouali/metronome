@@ -8,32 +8,27 @@ import type { ZoneScore } from "../types";
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
 const ZONES_SOURCE_ID = "zones";
+const NO_SELECTION_FILTER: maplibregl.FilterSpecification = ["==", ["get", "id"], "__none__"];
 
 function toFeatureCollection(zones: ZoneScore[]): GeoJSON.FeatureCollection {
   return {
     type: "FeatureCollection",
     features: zones.map((zone) => ({
       type: "Feature",
+      id: zone.id,
       geometry: zone.geometry,
-      properties: {
-        id: zone.id,
-        name: zone.name,
-        score: zone.score,
-        traffic_congestion: zone.signals.traffic_congestion,
-        transit_delay: zone.signals.transit_delay,
-        weather_severity: zone.signals.weather_severity,
-        event_density: zone.signals.event_density,
-      },
+      properties: { id: zone.id, name: zone.name, score: zone.score },
     })),
   };
 }
 
-function addZoneLayers(map: maplibregl.Map) {
+function addZoneLayers(map: maplibregl.Map, onSelectZone: (id: string) => void) {
   if (map.getSource(ZONES_SOURCE_ID)) return;
 
   map.addSource(ZONES_SOURCE_ID, {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
+    promoteId: "id",
   });
 
   map.addLayer({
@@ -46,17 +41,22 @@ function addZoneLayers(map: maplibregl.Map) {
         ["linear"],
         ["get", "score"],
         0,
-        "#2166ac",
-        25,
-        "#67a9cf",
-        50,
-        "#fee090",
-        75,
-        "#fc8d59",
+        "#90f7b4",
+        45,
+        "#79afff",
+        60,
+        "#f4c06a",
+        70,
+        "#ff9a72",
         100,
-        "#b2182b",
+        "#ff6c6c",
       ],
-      "fill-opacity": 0.6,
+      "fill-opacity": [
+        "case",
+        ["boolean", ["feature-state", "hover"], false],
+        0.85,
+        0.55,
+      ],
     },
   });
 
@@ -65,39 +65,57 @@ function addZoneLayers(map: maplibregl.Map) {
     type: "line",
     source: ZONES_SOURCE_ID,
     paint: {
-      "line-color": "#ffffff",
+      "line-color": "rgba(255,255,255,0.25)",
       "line-width": 1,
     },
   });
 
-  const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+  map.addLayer({
+    id: "zones-selected-outline",
+    type: "line",
+    source: ZONES_SOURCE_ID,
+    filter: NO_SELECTION_FILTER,
+    paint: {
+      "line-color": "rgba(255,255,255,0.85)",
+      "line-width": 2.5,
+    },
+  });
+
+  let hoveredId: string | number | null = null;
 
   map.on("mousemove", "zones-fill", (e) => {
     map.getCanvas().style.cursor = "pointer";
     const feature = e.features?.[0];
-    if (!feature || !e.lngLat) return;
-    const p = feature.properties as Record<string, number | string>;
-    popup
-      .setLngLat(e.lngLat)
-      .setHTML(
-        `<strong>${p.name}</strong><br/>score: ${p.score}<br/>` +
-          `traffic: ${p.traffic_congestion} · transit: ${p.transit_delay} · ` +
-          `weather: ${p.weather_severity} · events: ${p.event_density}`,
-      )
-      .addTo(map);
+    if (!feature || feature.id === undefined) return;
+    if (hoveredId !== null && hoveredId !== feature.id) {
+      map.setFeatureState({ source: ZONES_SOURCE_ID, id: hoveredId }, { hover: false });
+    }
+    hoveredId = feature.id;
+    map.setFeatureState({ source: ZONES_SOURCE_ID, id: hoveredId }, { hover: true });
   });
 
   map.on("mouseleave", "zones-fill", () => {
     map.getCanvas().style.cursor = "";
-    popup.remove();
+    if (hoveredId !== null) {
+      map.setFeatureState({ source: ZONES_SOURCE_ID, id: hoveredId }, { hover: false });
+      hoveredId = null;
+    }
+  });
+
+  map.on("click", "zones-fill", (e) => {
+    const feature = e.features?.[0];
+    const id = feature?.properties?.id;
+    if (typeof id === "string") onSelectZone(id);
   });
 }
 
 interface MapViewProps {
   zones: ZoneScore[];
+  selectedZoneId: string | null;
+  onSelectZone: (id: string) => void;
 }
 
-export default function MapView({ zones }: MapViewProps) {
+export default function MapView({ zones, selectedZoneId, onSelectZone }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const loadedRef = useRef(false);
@@ -105,10 +123,24 @@ export default function MapView({ zones }: MapViewProps) {
   // long before the first real fetch resolves) never reads a stale closure.
   const zonesRef = useRef<ZoneScore[]>(zones);
   zonesRef.current = zones;
+  const onSelectZoneRef = useRef(onSelectZone);
+  onSelectZoneRef.current = onSelectZone;
+  // Same reasoning as zonesRef: selection can change (e.g. the initial
+  // auto-select) before the map's "load" event ever fires, since that
+  // depends on slow tile/style network requests. Without this, the
+  // selectedZoneId-effect below can run-and-bail while loadedRef is still
+  // false and never get another chance to apply the filter.
+  const selectedZoneIdRef = useRef<string | null>(selectedZoneId);
+  selectedZoneIdRef.current = selectedZoneId;
 
   const syncZones = (map: maplibregl.Map) => {
     const source = map.getSource(ZONES_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
     source?.setData(toFeatureCollection(zonesRef.current));
+  };
+
+  const syncSelection = (map: maplibregl.Map) => {
+    const id = selectedZoneIdRef.current;
+    map.setFilter("zones-selected-outline", id ? ["==", ["get", "id"], id] : NO_SELECTION_FILTER);
   };
 
   useEffect(() => {
@@ -119,13 +151,15 @@ export default function MapView({ zones }: MapViewProps) {
       style: MAP_STYLE,
       center: [-73.9857, 40.7484],
       zoom: 11,
+      attributionControl: { compact: true },
     });
     mapRef.current = map;
 
     map.on("load", () => {
       loadedRef.current = true;
-      addZoneLayers(map);
+      addZoneLayers(map, (id) => onSelectZoneRef.current(id));
       syncZones(map);
+      syncSelection(map);
     });
 
     return () => {
@@ -141,6 +175,12 @@ export default function MapView({ zones }: MapViewProps) {
     if (!map || !loadedRef.current) return;
     syncZones(map);
   }, [zones]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    syncSelection(map);
+  }, [selectedZoneId]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
