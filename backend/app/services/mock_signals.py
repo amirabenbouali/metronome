@@ -1,13 +1,10 @@
 """Placeholder per-zone signals until real ingestion is wired up.
 
 Zone geometry/identity now live in Postgres (see `zones` table, seeded via
-scripts/seed_zones.py). traffic_congestion, transit_delay, and
-weather_severity are live in production use (see app/services/ingestion/)
-and these values only serve as a fallback when a live fetch fails.
-event_density has no live source wired up yet (no free, no-signup London
-events feed equivalent to NYC Open Data was found), so it's mocked for real,
-not just as a fallback - values are a rough guess at each area's character
-rather than measured data.
+scripts/seed_zones.py). All four signals are live in normal use (see
+app/services/ingestion/) - these values are only a fallback for when a live
+fetch fails, or for event_density specifically when TICKETMASTER_API_KEY
+isn't configured.
 """
 
 from app.schemas.zone import ZoneSignals

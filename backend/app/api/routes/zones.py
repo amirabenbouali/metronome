@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.zone import Zone
 from app.schemas.zone import ZoneScoreOut
+from app.services.ingestion.events import fetch_event_density
 from app.services.ingestion.traffic import fetch_traffic_congestion
 from app.services.ingestion.transit import fetch_transit_delay
 from app.services.ingestion.weather import fetch_weather_severity
@@ -22,9 +23,10 @@ async def list_zones(db: AsyncSession = Depends(get_db)) -> list[ZoneScoreOut]:
     """Return per-zone pulse scores.
 
     Zone geometry/identity come from Postgres. weather_severity (Open-Meteo),
-    traffic_congestion (TfL road status), and transit_delay (TfL Tube line
-    status) are all live; event_density is still a hardcoded mock value - no
-    free, no-signup London events feed equivalent to NYC Open Data was found.
+    traffic_congestion (TfL road status), transit_delay (TfL Tube line
+    status), and event_density (Ticketmaster Discovery API, when
+    TICKETMASTER_API_KEY is configured) are all live and fall back to a
+    mocked value per-signal if their fetch fails or isn't configured.
     """
     stmt = select(
         Zone,
@@ -34,16 +36,21 @@ async def list_zones(db: AsyncSession = Depends(get_db)) -> list[ZoneScoreOut]:
     ).order_by(Zone.name)
     rows = (await db.execute(stmt)).all()
 
-    live_weather, live_traffic, live_transit = await asyncio.gather(
+    live_weather, live_traffic, live_transit, live_events = await asyncio.gather(
         asyncio.gather(*(fetch_weather_severity(lat, lng) for _, _, lat, lng in rows)),
         asyncio.gather(*(fetch_traffic_congestion(lat, lng) for _, _, lat, lng in rows)),
         asyncio.gather(*(fetch_transit_delay(zone.slug) for zone, *_ in rows)),
+        asyncio.gather(*(fetch_event_density(lat, lng) for _, _, lat, lng in rows)),
     )
 
     zones = []
-    for (zone, geojson, _lat, _lng), weather_severity, traffic_congestion, transit_delay in zip(
-        rows, live_weather, live_traffic, live_transit
-    ):
+    for (
+        (zone, geojson, _lat, _lng),
+        weather_severity,
+        traffic_congestion,
+        transit_delay,
+        event_density,
+    ) in zip(rows, live_weather, live_traffic, live_transit, live_events):
         base_signals = MOCK_SIGNALS.get(zone.slug, DEFAULT_SIGNALS)
         signals = base_signals.model_copy(
             update={
@@ -56,6 +63,9 @@ async def list_zones(db: AsyncSession = Depends(get_db)) -> list[ZoneScoreOut]:
                 "transit_delay": transit_delay
                 if transit_delay is not None
                 else base_signals.transit_delay,
+                "event_density": event_density
+                if event_density is not None
+                else base_signals.event_density,
             }
         )
         zones.append(

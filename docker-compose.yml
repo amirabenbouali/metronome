@@ -24,6 +24,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-metronome}:${POSTGRES_PASSWORD:-metronome}@postgres:5432/${POSTGRES_DB:-metronome}
+      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
