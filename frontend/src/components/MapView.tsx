@@ -2,6 +2,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef } from "react";
 
+import type { LayerKey } from "../lib/layers";
 import type { ZoneScore } from "../types";
 
 // Free, no-signup vector tiles + style. See https://openfreemap.org
@@ -17,9 +18,37 @@ function toFeatureCollection(zones: ZoneScore[]): GeoJSON.FeatureCollection {
       type: "Feature",
       id: zone.id,
       geometry: zone.geometry,
-      properties: { id: zone.id, name: zone.name, score: zone.score },
+      properties: {
+        id: zone.id,
+        name: zone.name,
+        score: zone.score,
+        // Signals are 0-1; scale to 0-100 so every layer can share one
+        // fill-color expression regardless of which property it reads.
+        traffic_congestion: zone.signals.traffic_congestion * 100,
+        transit_delay: zone.signals.transit_delay * 100,
+        weather_severity: zone.signals.weather_severity * 100,
+        event_density: zone.signals.event_density * 100,
+      },
     })),
   };
+}
+
+function fillColorExpression(layer: LayerKey): maplibregl.ExpressionSpecification {
+  return [
+    "interpolate",
+    ["linear"],
+    ["get", layer],
+    0,
+    "#90f7b4",
+    45,
+    "#79afff",
+    60,
+    "#f4c06a",
+    70,
+    "#ff9a72",
+    100,
+    "#ff6c6c",
+  ];
 }
 
 function addZoneLayers(map: maplibregl.Map, onSelectZone: (id: string) => void) {
@@ -36,21 +65,7 @@ function addZoneLayers(map: maplibregl.Map, onSelectZone: (id: string) => void) 
     type: "fill",
     source: ZONES_SOURCE_ID,
     paint: {
-      "fill-color": [
-        "interpolate",
-        ["linear"],
-        ["get", "score"],
-        0,
-        "#90f7b4",
-        45,
-        "#79afff",
-        60,
-        "#f4c06a",
-        70,
-        "#ff9a72",
-        100,
-        "#ff6c6c",
-      ],
+      "fill-color": fillColorExpression("score"),
       "fill-opacity": [
         "case",
         ["boolean", ["feature-state", "hover"], false],
@@ -113,25 +128,27 @@ interface MapViewProps {
   zones: ZoneScore[];
   selectedZoneId: string | null;
   onSelectZone: (id: string) => void;
+  activeLayer: LayerKey;
 }
 
-export default function MapView({ zones, selectedZoneId, onSelectZone }: MapViewProps) {
+export default function MapView({ zones, selectedZoneId, onSelectZone, activeLayer }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const loadedRef = useRef(false);
-  // Always holds the latest zones, so the "load" handler (attached once,
-  // long before the first real fetch resolves) never reads a stale closure.
+  // All three refs below exist for the same reason: each corresponding prop
+  // can change (via data fetch, auto-selection, or a rail click) before the
+  // map's "load" event ever fires, since that's gated on slow tile/style
+  // network requests. Without a ref, the prop-driven effects below would
+  // run-and-bail while loadedRef is still false and never get another
+  // chance to apply once the map actually becomes ready.
   const zonesRef = useRef<ZoneScore[]>(zones);
   zonesRef.current = zones;
   const onSelectZoneRef = useRef(onSelectZone);
   onSelectZoneRef.current = onSelectZone;
-  // Same reasoning as zonesRef: selection can change (e.g. the initial
-  // auto-select) before the map's "load" event ever fires, since that
-  // depends on slow tile/style network requests. Without this, the
-  // selectedZoneId-effect below can run-and-bail while loadedRef is still
-  // false and never get another chance to apply the filter.
   const selectedZoneIdRef = useRef<string | null>(selectedZoneId);
   selectedZoneIdRef.current = selectedZoneId;
+  const activeLayerRef = useRef<LayerKey>(activeLayer);
+  activeLayerRef.current = activeLayer;
 
   const syncZones = (map: maplibregl.Map) => {
     const source = map.getSource(ZONES_SOURCE_ID) as maplibregl.GeoJSONSource | undefined;
@@ -141,6 +158,10 @@ export default function MapView({ zones, selectedZoneId, onSelectZone }: MapView
   const syncSelection = (map: maplibregl.Map) => {
     const id = selectedZoneIdRef.current;
     map.setFilter("zones-selected-outline", id ? ["==", ["get", "id"], id] : NO_SELECTION_FILTER);
+  };
+
+  const syncLayer = (map: maplibregl.Map) => {
+    map.setPaintProperty("zones-fill", "fill-color", fillColorExpression(activeLayerRef.current));
   };
 
   useEffect(() => {
@@ -160,6 +181,7 @@ export default function MapView({ zones, selectedZoneId, onSelectZone }: MapView
       addZoneLayers(map, (id) => onSelectZoneRef.current(id));
       syncZones(map);
       syncSelection(map);
+      syncLayer(map);
     });
 
     return () => {
@@ -181,6 +203,12 @@ export default function MapView({ zones, selectedZoneId, onSelectZone }: MapView
     if (!map || !loadedRef.current) return;
     syncSelection(map);
   }, [selectedZoneId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    syncLayer(map);
+  }, [activeLayer]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }

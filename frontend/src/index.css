@@ -80,6 +80,7 @@ button {
 }
 
 .icon {
+  position: relative;
   width: 42px;
   height: 42px;
   border: 0;
@@ -93,6 +94,56 @@ button {
 .icon.active {
   background: rgba(255, 255, 255, 0.07);
   color: #fff;
+}
+
+.rail-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 2px rgba(7, 9, 13, 0.94);
+}
+
+.rail-popover {
+  position: absolute;
+  left: 52px;
+  top: 0;
+  min-width: 170px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+  z-index: 20;
+}
+
+.rail-popover-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: 0;
+  color: var(--soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rail-popover-item:hover,
+.rail-popover-item.active {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.rail-popover-empty {
+  padding: 9px 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .live {
@@ -301,6 +352,14 @@ h1 {
   font-size: 9px;
   color: #858d98;
   letter-spacing: 0.12em;
+}
+
+.legend-title {
+  color: #fff;
+  font-weight: 800;
+  margin-right: 4px;
+  padding-right: 10px;
+  border-right: 1px solid var(--line);
 }
 
 .legend i {
