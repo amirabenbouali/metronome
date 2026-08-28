@@ -81,7 +81,7 @@ export default function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">NEW YORK CITY / LIVE SYSTEM</p>
+            <p className="eyebrow">LONDON / LIVE SYSTEM</p>
             <h1>City pulse</h1>
           </div>
           <div className="summary">

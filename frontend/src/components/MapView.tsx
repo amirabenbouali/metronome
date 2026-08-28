@@ -149,7 +149,7 @@ export default function MapView({ zones, selectedZoneId, onSelectZone }: MapView
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: MAP_STYLE,
-      center: [-73.9857, 40.7484],
+      center: [-0.1, 51.51],
       zoom: 11,
       attributionControl: { compact: true },
     });

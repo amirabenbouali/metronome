@@ -1,94 +1,93 @@
-"""Live traffic-congestion signal via NYC DOT's real-time traffic speed feed.
+"""Live traffic-congestion signal via TfL's road corridor status feed.
 
-Free, no API key required. See:
-https://data.cityofnewyork.us/Transportation/DOT-Traffic-Speeds-NBE/i4gi-tjb9
+Free, no API key required (a key is only needed for higher rate limits).
+See: https://api.tfl.gov.uk/swagger/ui/index.html#!/Road
 
-The dataset reports speed per monitored road segment ("link"), not per
-zone, and the sensor network is sparse - test queries found zero monitored
-links within 3km of some zone centroids (e.g. Williamsburg). So rather than
-matching individual links to each zone's small footprint, this averages all
-links reporting recently in the zone's borough - a coarser proxy, same
-spirit as the community-board approach in events.py.
-
-The feed itself isn't always fresh (observed multi-hour gaps between
-updates during development), so rather than filtering to a tight recent
-window and getting nothing back during a gap, this just takes each link's
-latest available reading, however old, and lets the response's own
-`data_as_of` values reflect actual freshness.
+TfL reports status per major road corridor (A-roads, ring roads, river
+crossings - ~24 total across London), each with a bounding box, rather than
+per exact location. Each zone is matched against every corridor whose
+bounding box contains its centroid; congestion is the average of their
+severities. Coverage is decent this way (every zone matched at least 2
+corridors when checked against Camden/Shoreditch/South Bank/Canary
+Wharf/Paddington), unlike the original NYC version where some zones had zero
+nearby monitored links.
 """
 
+import json
 import time
 
 import httpx
 
-SOCRATA_BASE = "https://data.cityofnewyork.us/resource/i4gi-tjb9.json"
+TFL_ROAD_URL = "https://api.tfl.gov.uk/Road"
 USER_AGENT = "Metronome/0.1 (+https://github.com/amirabenbouali/metronome)"
 
-# zone slug -> NYC borough, as used in the traffic dataset
-ZONE_BOROUGH: dict[str, str] = {
-    "midtown": "Manhattan",
-    "downtown": "Manhattan",
-    "upper-west-side": "Manhattan",
-    "williamsburg": "Brooklyn",
-    "long-island-city": "Queens",
+# TfL's disruption severity vocabulary, worst to best. Unrecognized values
+# fall back to a mid-range guess rather than being dropped.
+_SEVERITY_SCORES: dict[str, float] = {
+    "severe": 0.9,
+    "serious": 0.7,
+    "moderate": 0.5,
+    "minor": 0.3,
+    "good": 0.1,
 }
+_UNKNOWN_SEVERITY_SCORE = 0.4
 
-_CACHE_TTL_SECONDS = 300  # traffic moves faster than weather/events; shorter TTL
-_cache: dict[str, tuple[float, float]] = {}  # borough -> (congestion, fetched_at)
+_ROADS_CACHE_TTL_SECONDS = 300
+_roads_cache: tuple[list[dict], float] | None = None
+
+_CONGESTION_CACHE_TTL_SECONDS = 300
+_congestion_cache: dict[tuple[float, float], tuple[float, float]] = {}
 
 
-async def fetch_traffic_congestion(borough: str) -> float | None:
-    """Return a 0-1 congestion score for a borough, or None if unavailable."""
+async def fetch_traffic_congestion(lat: float, lng: float) -> float | None:
+    """Return a 0-1 congestion score for a point, or None if unavailable."""
+    key = (round(lat, 3), round(lng, 3))
     now = time.monotonic()
 
-    cached = _cache.get(borough)
-    if cached is not None and now - cached[1] < _CACHE_TTL_SECONDS:
+    cached = _congestion_cache.get(key)
+    if cached is not None and now - cached[1] < _CONGESTION_CACHE_TTL_SECONDS:
         return cached[0]
 
-    congestion = await _fetch_live_congestion(borough)
-    if congestion is not None:
-        _cache[borough] = (congestion, now)
+    roads = await _fetch_roads()
+    if roads is None:
+        return None
+
+    matched_scores = [
+        _SEVERITY_SCORES.get(road["statusSeverity"].lower(), _UNKNOWN_SEVERITY_SCORE)
+        for road in roads
+        if _point_in_bounds(lat, lng, road["bounds"])
+    ]
+    if not matched_scores:
+        return None
+
+    congestion = round(sum(matched_scores) / len(matched_scores), 2)
+    _congestion_cache[key] = (congestion, now)
     return congestion
 
 
-async def _fetch_live_congestion(borough: str) -> float | None:
-    params = {
-        "$where": f"borough='{borough}'",
-        "$order": "data_as_of DESC",
-        "$select": "link_id,speed",
-        "$limit": "2000",
-    }
-    headers = {"User-Agent": USER_AGENT}
+async def _fetch_roads() -> list[dict] | None:
+    global _roads_cache
+    now = time.monotonic()
 
+    if _roads_cache is not None and now - _roads_cache[1] < _ROADS_CACHE_TTL_SECONDS:
+        return _roads_cache[0]
+
+    headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient(timeout=5.0, headers=headers) as client:
         try:
-            resp = await client.get(SOCRATA_BASE, params=params)
+            resp = await client.get(TFL_ROAD_URL)
             resp.raise_for_status()
-            rows = resp.json()
+            roads = resp.json()
         except httpx.HTTPError:
             return None
 
-    # Keep only the latest reading per link (rows are ordered newest-first).
-    latest_speed_by_link: dict[str, float] = {}
-    for row in rows:
-        link_id = row.get("link_id")
-        speed = row.get("speed")
-        if link_id is None or speed is None or link_id in latest_speed_by_link:
-            continue
-        try:
-            latest_speed_by_link[link_id] = float(speed)
-        except ValueError:
-            continue
-
-    if not latest_speed_by_link:
-        return None
-
-    avg_speed = sum(latest_speed_by_link.values()) / len(latest_speed_by_link)
-    return _congestion_from_speed(avg_speed)
+    _roads_cache = (roads, now)
+    return roads
 
 
-def _congestion_from_speed(avg_speed_mph: float) -> float:
-    # 30mph is a reasonable "flowing, uncongested" reference for NYC arterial
-    # roads; calibrated against live borough averages (Manhattan ~12mph,
-    # Brooklyn/Queens ~22-25mph on an ordinary weekday).
-    return round(min(max(1 - avg_speed_mph / 30.0, 0.0), 1.0), 2)
+def _point_in_bounds(lat: float, lng: float, bounds_json: str) -> bool:
+    try:
+        (lng1, lat1), (lng2, lat2) = json.loads(bounds_json)
+    except (ValueError, TypeError):
+        return False
+    return min(lat1, lat2) <= lat <= max(lat1, lat2) and min(lng1, lng2) <= lng <= max(lng1, lng2)

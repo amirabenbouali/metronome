@@ -1,22 +1,15 @@
-"""Live weather signal via the US National Weather Service API.
+"""Live weather signal via Open-Meteo.
 
-api.weather.gov is free, requires no API key, and covers US locations - a
-good fit since all current zones are in NYC. See:
-https://www.weather.gov/documentation/services-web-api
-
-This does a live 3-hop lookup (points -> nearest station -> latest
-observation) per call, with a short in-memory cache so we're not hammering
-NWS on every request. A production version would run this on a schedule and
-persist results instead of fetching inline in the request path.
+Free, no API key required, and covers any location worldwide (unlike the US
+National Weather Service used in this project's original NYC version). See:
+https://open-meteo.com/en/docs
 """
 
 import time
 
 import httpx
 
-NWS_BASE = "https://api.weather.gov"
-# NWS asks that clients identify themselves; a repo URL is enough, no need
-# for a personal contact.
+OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
 USER_AGENT = "Metronome/0.1 (+https://github.com/amirabenbouali/metronome)"
 
 _CACHE_TTL_SECONDS = 600
@@ -39,34 +32,29 @@ async def fetch_weather_severity(lat: float, lng: float) -> float | None:
 
 
 async def _fetch_live_severity(lat: float, lng: float) -> float | None:
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/geo+json"}
+    params = {
+        "latitude": f"{lat:.4f}",
+        "longitude": f"{lng:.4f}",
+        "current": "temperature_2m,wind_speed_10m,wind_gusts_10m,precipitation",
+    }
+    headers = {"User-Agent": USER_AGENT}
+
     async with httpx.AsyncClient(timeout=5.0, headers=headers) as client:
         try:
-            points_resp = await client.get(f"{NWS_BASE}/points/{lat:.4f},{lng:.4f}")
-            points_resp.raise_for_status()
-            stations_url = points_resp.json()["properties"]["observationStations"]
-
-            stations_resp = await client.get(stations_url)
-            stations_resp.raise_for_status()
-            features = stations_resp.json()["features"]
-            if not features:
-                return None
-            station_id = features[0]["properties"]["stationIdentifier"]
-
-            obs_resp = await client.get(f"{NWS_BASE}/stations/{station_id}/observations/latest")
-            obs_resp.raise_for_status()
-            properties = obs_resp.json()["properties"]
-        except (httpx.HTTPError, KeyError, IndexError, TypeError):
+            resp = await client.get(OPEN_METEO_BASE, params=params)
+            resp.raise_for_status()
+            current = resp.json()["current"]
+        except (httpx.HTTPError, KeyError, TypeError):
             return None
 
-    return _severity_from_observation(properties)
+    return _severity_from_current(current)
 
 
-def _severity_from_observation(properties: dict) -> float:
-    wind_kmh = (properties.get("windSpeed") or {}).get("value") or 0.0
-    gust_kmh = (properties.get("windGust") or {}).get("value") or 0.0
-    precip_mm = (properties.get("precipitationLastHour") or {}).get("value") or 0.0
-    temp_c = (properties.get("temperature") or {}).get("value")
+def _severity_from_current(current: dict) -> float:
+    wind_kmh = current.get("wind_speed_10m") or 0.0
+    gust_kmh = current.get("wind_gusts_10m") or 0.0
+    precip_mm = current.get("precipitation") or 0.0
+    temp_c = current.get("temperature_2m")
 
     wind_component = min(max(wind_kmh, gust_kmh) / 60.0, 1.0)  # 60 km/h+ is severe
     precip_component = min(precip_mm / 15.0, 1.0)  # 15mm/hr+ is severe
