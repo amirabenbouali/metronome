@@ -11,8 +11,15 @@ still a legitimate live pulse signal.
 
 Set TICKETMASTER_API_KEY in backend/.env to enable; event_density falls
 back to the mock value if unset or a request fails.
+
+With 33 zones (every London borough) each firing their own geo-radius
+query, a free-tier key's burst rate limit becomes a real risk - a spot
+check during development saw an occasional failure at just 5 concurrent
+requests. A semaphore caps how many run at once; the cache TTL is longer
+than the other adapters' since events don't change minute to minute.
 """
 
+import asyncio
 import math
 import time
 from datetime import datetime, timezone
@@ -22,17 +29,22 @@ import httpx
 from app.core.config import settings
 
 DISCOVERY_EVENTS_URL = "https://app.ticketmaster.com/discovery/v2/events.json"
-SEARCH_RADIUS_KM = 2
+# Boroughs vary hugely in size (City of London vs. Bromley), and the API
+# only takes a single point + radius, not a polygon - this is a compromise
+# radius rather than a precise per-zone fit.
+SEARCH_RADIUS_KM = 3
+MAX_CONCURRENT_REQUESTS = 5
 
 # Calibrated against live counts (checked 2026-08-28: 3-109 events found
-# today within 2km across the 5 zones - South Bank's West End-adjacent
+# today within 2km across 5 central zones - South Bank's West End-adjacent
 # venue density dwarfing everywhere else). A log scale keeps that spread
 # meaningful instead of either saturating everything or flattening the low
 # end, which a linear cap would do given the ~35x range between zones.
 _DENSITY_LOG_CAP = 150
 
-_CACHE_TTL_SECONDS = 600
+_CACHE_TTL_SECONDS = 1200
 _cache: dict[tuple[float, float], tuple[float, float]] = {}  # (lat, lng) -> (density, fetched_at)
+_request_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
 
 async def fetch_event_density(lat: float, lng: float) -> float | None:
@@ -65,7 +77,7 @@ async def _fetch_live_density(lat: float, lng: float) -> float | None:
         "apikey": settings.ticketmaster_api_key,
     }
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with _request_semaphore, httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.get(DISCOVERY_EVENTS_URL, params=params)
             resp.raise_for_status()
