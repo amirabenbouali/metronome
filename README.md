@@ -2,7 +2,7 @@
 
 A live "city pulse" dashboard for London: four independent real-time data sources — traffic, transit, weather, and events — fused into a single 0–100 score for each of the city's 32 boroughs plus the City of London, shown on an interactive map.
 
-> 📸 **Add a screenshot here.** The easiest way: run the app locally (see below), open http://localhost:5173, and drop a screenshot at `docs/screenshot-dashboard.png` (and reference it with `![Metronome dashboard](docs/screenshot-dashboard.png)` right here).
+![Metronome dashboard showing London's 33 boroughs colored by pulse score, with the City of London focused](docs/screenshot-dashboard.jpg)
 
 ## What it does
 
