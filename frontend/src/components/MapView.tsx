@@ -216,7 +216,18 @@ export default function MapView({
       syncLayer(map);
     });
 
+    // MapLibre only auto-resizes on window resize (trackResize), not on its
+    // own container changing size - and the rail/topbar/panels around it can
+    // still be settling their own layout (web fonts loading, flex/grid
+    // recalculating) after the map is constructed, at whatever size the
+    // container happened to be at that instant. Without this, the canvas
+    // can get stuck rendering at that stale, too-small size indefinitely
+    // even though its container is now the right size.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(containerRef.current);
+
     return () => {
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
       loadedRef.current = false;
