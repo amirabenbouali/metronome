@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: metronome-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false # set to your Supabase connection string
+      - key: DATABASE_SSL
+        value: "true"
+      - key: CORS_ORIGINS
+        sync: false # your Vercel frontend URL, once deployed
+      - key: TICKETMASTER_API_KEY
+        sync: false # optional - free key from developer.ticketmaster.com

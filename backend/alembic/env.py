@@ -98,10 +98,16 @@ async def run_async_migrations() -> None:
 
     """
 
+    # See app/db/session.py: asyncpg takes SSL via connect_args, not a
+    # ?sslmode= query param, so hosted Postgres (Supabase, etc.) needs this
+    # passed explicitly here too - async_engine_from_config has no idea
+    # about our own database_ssl setting.
+    connect_args = {"ssl": "require"} if settings.database_ssl else {}
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:

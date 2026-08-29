@@ -75,6 +75,43 @@ npm run dev
 
 Open http://localhost:5173
 
+## Deployment
+
+Live stack: **Supabase** (Postgres + PostGIS), **Render** (backend), **Vercel** (frontend) — all free tier, no credit card required for any of them.
+
+### 1. Database (Supabase)
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. In the SQL Editor, run `create extension if not exists postgis;`.
+3. Copy the connection string from **Project Settings → Database** (use the direct connection, not the pooler - a single always-on backend instance doesn't need connection pooling).
+4. Seed it once, from your machine, pointing at Supabase instead of local Postgres:
+   ```bash
+   cd backend
+   DATABASE_URL="<supabase connection string, with +asyncpg after postgresql>" \
+   DATABASE_SSL=true \
+     python -m scripts.seed_zones
+   ```
+
+### 2. Backend (Render)
+
+This repo includes a `render.yaml` blueprint. In the Render dashboard: **New → Blueprint**, point it at this repo, and it'll pick up `metronome-backend` automatically. You'll be prompted for:
+
+- `DATABASE_URL` — the same Supabase connection string as above
+- `CORS_ORIGINS` — leave a placeholder for now (e.g. `http://localhost:5173`); you'll update it once the frontend is deployed
+- `TICKETMASTER_API_KEY` — optional
+
+`DATABASE_SSL` is already set to `true` in the blueprint. Render will build straight from `backend/Dockerfile`. Free tier sleeps after 15 minutes of inactivity — the first request after a while takes 30-60 seconds to wake up.
+
+### 3. Frontend (Vercel)
+
+1. Import this repo into Vercel, setting **Root Directory** to `frontend`.
+2. Add an environment variable: `VITE_API_BASE_URL` = your Render backend's URL (e.g. `https://metronome-backend.onrender.com`).
+3. Deploy.
+
+### 4. Close the loop
+
+Back in Render, update `CORS_ORIGINS` to your actual Vercel URL and redeploy the backend - until then, the frontend's requests will be blocked by CORS.
+
 ## How the score works
 
 Each of the four signals is normalized to 0–1, then combined with fixed weights (see `backend/app/services/scoring.py`) into a single 0–100 pulse score. The scoring logic itself never touches the network — it's a pure function over whatever signal values it's given, whether those came from a live API or a fallback default. Each ingestion adapter (`backend/app/services/ingestion/`) is independent and interchangeable: if one source is down or unconfigured, that one signal falls back gracefully without breaking the others.
@@ -111,4 +148,5 @@ frontend/
     components/          # MapView, Rail, Search, ZoneCard, SignalsPanel, etc.
     lib/                 # API client, scoring/layer helpers
 docker-compose.yml        # Postgres/PostGIS for local dev
+render.yaml                # Render blueprint for the backend
 ```
