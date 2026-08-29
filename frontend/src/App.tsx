@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Legend from "./components/Legend";
 import MapView from "./components/MapView";
 import Rail from "./components/Rail";
+import Search from "./components/Search";
 import SignalsPanel from "./components/SignalsPanel";
 import Timestamp from "./components/Timestamp";
 import Toast from "./components/Toast";
@@ -28,6 +29,10 @@ export default function App() {
   const [toastVisible, setToastVisible] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerKey>("score");
   const [signalsPanelVisible, setSignalsPanelVisible] = useState(true);
+  // A fresh object each time, even for the same zone id, so MapView's
+  // effect (keyed on this reference) fires again if you search the same
+  // borough twice in a row.
+  const [flyToRequest, setFlyToRequest] = useState<{ id: string } | null>(null);
 
   // Previous poll's zones, one step behind `zones` - used to derive deltas.
   const previousZonesRef = useRef<ZoneScore[]>([]);
@@ -68,6 +73,17 @@ export default function App() {
     toastTimeoutRef.current = window.setTimeout(() => setToastVisible(false), TOAST_DURATION_MS);
   }, []);
 
+  // Like handleSelectZone, but also pans/zooms the map there - for search,
+  // where (unlike clicking a zone directly) you don't already know where it
+  // is on screen.
+  const handleFocusZone = useCallback(
+    (id: string) => {
+      handleSelectZone(id);
+      setFlyToRequest({ id });
+    },
+    [handleSelectZone],
+  );
+
   const selectedZone = zones.find((z) => z.id === selectedZoneId) ?? null;
   const previousSelectedZone = previousZonesRef.current.find((z) => z.id === selectedZoneId);
   const delta =
@@ -102,6 +118,7 @@ export default function App() {
             <p className="eyebrow">LONDON / LIVE SYSTEM</p>
             <h1>City pulse</h1>
           </div>
+          <Search zones={zones} onFocusZone={handleFocusZone} />
           <div className="summary">
             <small>METRONOME</small>
             <strong>{globalScore ?? "–"}</strong>
@@ -116,6 +133,7 @@ export default function App() {
               selectedZoneId={selectedZoneId}
               onSelectZone={handleSelectZone}
               activeLayer={activeLayer}
+              flyToRequest={flyToRequest}
             />
           </div>
 

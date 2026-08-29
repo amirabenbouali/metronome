@@ -1,4 +1,3 @@
-import { primaryDriver } from "../lib/driver";
 import { scoreState, scoreStateColor } from "../lib/scoreState";
 import type { ZoneScore } from "../types";
 
@@ -20,12 +19,18 @@ export default function ZoneCard({ zone, delta }: ZoneCardProps) {
       <section className="panel zonecard">
         <p className="eyebrow">FOCUSED ZONE</p>
         <h2>Select a zone</h2>
-        <div className="driver">Click any zone on the map to see its live breakdown.</div>
+        <div className="driver">Click any zone on the map, or search above, to see its live breakdown.</div>
       </section>
     );
   }
 
   const state = scoreState(zone.score);
+  const rows: Array<{ label: string; text: string }> = [
+    { label: "Traffic", text: zone.details.traffic },
+    { label: "Transit", text: zone.details.transit },
+    { label: "Weather", text: zone.details.weather },
+    { label: "Events", text: zone.details.events },
+  ];
 
   return (
     <section className="panel zonecard">
@@ -36,9 +41,13 @@ export default function ZoneCard({ zone, delta }: ZoneCardProps) {
         <span style={{ color: scoreStateColor(state) }}>{state}</span>
       </div>
       <div className="delta">{formatDelta(delta)}</div>
-      <div className="driver">
-        PRIMARY DRIVER
-        <b>{primaryDriver(zone.signals)}</b>
+      <div className="detailgrid">
+        {rows.map((row) => (
+          <div className="detailrow" key={row.label}>
+            <span>{row.label.toUpperCase()}</span>
+            <p>{row.text}</p>
+          </div>
+        ))}
       </div>
     </section>
   );

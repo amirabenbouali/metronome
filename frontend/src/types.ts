@@ -5,10 +5,18 @@ export interface ZoneSignals {
   event_density: number;
 }
 
+export interface SignalDetails {
+  traffic: string;
+  transit: string;
+  weather: string;
+  events: string;
+}
+
 export interface ZoneScore {
   id: string;
   name: string;
   score: number;
   signals: ZoneSignals;
+  details: SignalDetails;
   geometry: GeoJSON.Geometry;
 }

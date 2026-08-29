@@ -1,10 +1,10 @@
 import { useState } from "react";
 
 import { LAYER_OPTIONS, type LayerKey } from "../lib/layers";
-import { scoreState } from "../lib/scoreState";
+import { SCORE_BANDS, scoreState, scoreStateColor } from "../lib/scoreState";
 import type { ZoneScore } from "../types";
 
-type PopoverKey = "layers" | "alerts" | null;
+type PopoverKey = "layers" | "alerts" | "info" | null;
 
 interface RailProps {
   live: boolean;
@@ -105,6 +105,40 @@ export default function Rail({
                   </button>
                 ))
               )}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <button
+            className={`icon${openPopover === "info" ? " active" : ""}`}
+            type="button"
+            title="What is this?"
+            onClick={() => togglePopover("info")}
+          >
+            ?
+          </button>
+          {openPopover === "info" && (
+            <div className="rail-popover info-popover">
+              <p className="info-text">
+                Metronome blends four live signals — traffic, transit, weather, and events —
+                into a single 0–100 pulse score for each of London's 33 boroughs, refreshed
+                every 30 seconds.
+              </p>
+              <p className="info-title">Score bands</p>
+              <ul className="info-bands">
+                {SCORE_BANDS.map((band) => (
+                  <li key={band.state}>
+                    <span style={{ color: scoreStateColor(band.state) }}>{band.state}</span>
+                    <span className="info-band-range">
+                      {band.min}–{band.max === 100 ? "100" : band.max}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="info-text">
+                Click any zone, or search a borough by name, to see its live breakdown.
+              </p>
             </div>
           )}
         </div>

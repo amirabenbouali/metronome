@@ -33,6 +33,31 @@ function toFeatureCollection(zones: ZoneScore[]): GeoJSON.FeatureCollection {
   };
 }
 
+function boundsFromGeometry(geometry: GeoJSON.Geometry): maplibregl.LngLatBoundsLike | null {
+  const coords: number[][] = [];
+  if (geometry.type === "Polygon") {
+    geometry.coordinates.forEach((ring) => coords.push(...ring));
+  } else if (geometry.type === "MultiPolygon") {
+    geometry.coordinates.forEach((poly) => poly.forEach((ring) => coords.push(...ring)));
+  }
+  if (coords.length === 0) return null;
+
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+  for (const [lng, lat] of coords) {
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }
+  return [
+    [minLng, minLat],
+    [maxLng, maxLat],
+  ];
+}
+
 function fillColorExpression(layer: LayerKey): maplibregl.ExpressionSpecification {
   return [
     "interpolate",
@@ -129,9 +154,16 @@ interface MapViewProps {
   selectedZoneId: string | null;
   onSelectZone: (id: string) => void;
   activeLayer: LayerKey;
+  flyToRequest: { id: string } | null;
 }
 
-export default function MapView({ zones, selectedZoneId, onSelectZone, activeLayer }: MapViewProps) {
+export default function MapView({
+  zones,
+  selectedZoneId,
+  onSelectZone,
+  activeLayer,
+  flyToRequest,
+}: MapViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const loadedRef = useRef(false);
@@ -209,6 +241,16 @@ export default function MapView({ zones, selectedZoneId, onSelectZone, activeLay
     if (!map || !loadedRef.current) return;
     syncLayer(map);
   }, [activeLayer]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current || !flyToRequest) return;
+    const zone = zonesRef.current.find((z) => z.id === flyToRequest.id);
+    const bounds = zone ? boundsFromGeometry(zone.geometry) : null;
+    if (bounds) {
+      map.fitBounds(bounds, { padding: 80, maxZoom: 12, duration: 800 });
+    }
+  }, [flyToRequest]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }

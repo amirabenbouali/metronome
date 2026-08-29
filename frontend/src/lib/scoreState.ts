@@ -3,16 +3,16 @@ export type ScoreState = "CALM" | "STEADY" | "ELEVATED" | "BUSY" | "INTENSE";
 // Bands roughly follow the reference design's sample data points
 // (South Bank 42=CALM, Paddington 51=STEADY, Camden 64=ELEVATED,
 // Canary Wharf 73=BUSY, Shoreditch 84=INTENSE).
-const BANDS: Array<{ max: number; state: ScoreState }> = [
-  { max: 44, state: "CALM" },
-  { max: 59, state: "STEADY" },
-  { max: 69, state: "ELEVATED" },
-  { max: 79, state: "BUSY" },
-  { max: Infinity, state: "INTENSE" },
+export const SCORE_BANDS: Array<{ min: number; max: number; state: ScoreState }> = [
+  { min: 0, max: 44, state: "CALM" },
+  { min: 45, max: 59, state: "STEADY" },
+  { min: 60, max: 69, state: "ELEVATED" },
+  { min: 70, max: 79, state: "BUSY" },
+  { min: 80, max: 100, state: "INTENSE" },
 ];
 
 export function scoreState(score: number): ScoreState {
-  return BANDS.find((band) => score <= band.max)!.state;
+  return SCORE_BANDS.find((band) => score <= band.max)!.state;
 }
 
 const STATE_COLOR_VAR: Record<ScoreState, string> = {
