@@ -39,10 +39,14 @@ MAX_CONCURRENT_REQUESTS = 5
 # (the density score itself is based on the true total, not this sample
 # size). Kept small since this fans out to all 33 zones every poll.
 SAMPLE_SIZE = 8
-# Ticketmaster's actual page-size ceiling, used only for the on-demand
-# "see all" fetch for one specific zone - confirmed via a live check that a
-# single size=200 request returns every event in one page even for
-# Westminster's ~160/day, so no pagination is needed in practice.
+# Ticketmaster's actual page-size ceiling, used for the on-demand "see all"
+# fetch for one specific zone. NOTE: the Discovery API has been observed to
+# return zero results for some size values on a query that succeeds at
+# others - e.g. Brent consistently got 0 events at size=200 (and every other
+# size tried) while size=SAMPLE_SIZE reliably returned 7. Cause unconfirmed
+# (looks like a backend cache/shard quirk on Ticketmaster's end, not
+# anything in our request), so fetch_all_events retries at SAMPLE_SIZE
+# rather than trusting a single size to always work.
 FULL_LIST_SIZE = 200
 
 # Calibrated against live counts (checked 2026-08-28: 3-109 events found
@@ -113,6 +117,14 @@ async def fetch_all_events(lat: float, lng: float) -> list[str] | None:
     if page is None:
         return None
     all_events, _total = page
+
+    # See the FULL_LIST_SIZE comment - an empty result here doesn't
+    # necessarily mean there are no events, since this exact size has been
+    # seen to fail where SAMPLE_SIZE succeeds for the same query.
+    if not all_events:
+        fallback_page = await _fetch_events_page(lat, lng, SAMPLE_SIZE)
+        if fallback_page is not None:
+            all_events, _total = fallback_page
 
     formatted = [_format_event(e) for e in all_events]
     _all_events_cache[key] = (formatted, now)
