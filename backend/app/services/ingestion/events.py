@@ -23,6 +23,7 @@ import asyncio
 import math
 import time
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 import httpx
 
@@ -43,12 +44,17 @@ MAX_CONCURRENT_REQUESTS = 5
 _DENSITY_LOG_CAP = 150
 
 _CACHE_TTL_SECONDS = 1200
-_cache: dict[tuple[float, float], tuple[float, float]] = {}  # (lat, lng) -> (density, fetched_at)
+_cache: dict[tuple[float, float], tuple["EventReading", float]] = {}
 _request_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
 
-async def fetch_event_density(lat: float, lng: float) -> float | None:
-    """Return a 0-1 event density score for a point, or None if unavailable/unconfigured."""
+class EventReading(NamedTuple):
+    density: float  # 0-1
+    description: str  # plain-language summary, naming an event when there is one
+
+
+async def fetch_event_density(lat: float, lng: float) -> EventReading | None:
+    """Return an event reading for a point, or None if unavailable/unconfigured."""
     if not settings.ticketmaster_api_key:
         return None
 
@@ -59,13 +65,13 @@ async def fetch_event_density(lat: float, lng: float) -> float | None:
     if cached is not None and now - cached[1] < _CACHE_TTL_SECONDS:
         return cached[0]
 
-    density = await _fetch_live_density(lat, lng)
-    if density is not None:
-        _cache[key] = (density, now)
-    return density
+    reading = await _fetch_live_reading(lat, lng)
+    if reading is not None:
+        _cache[key] = (reading, now)
+    return reading
 
 
-async def _fetch_live_density(lat: float, lng: float) -> float | None:
+async def _fetch_live_reading(lat: float, lng: float) -> EventReading | None:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     params = {
         "latlong": f"{lat},{lng}",
@@ -73,7 +79,7 @@ async def _fetch_live_density(lat: float, lng: float) -> float | None:
         "unit": "km",
         "startDateTime": f"{today}T00:00:00Z",
         "endDateTime": f"{today}T23:59:59Z",
-        "size": "1",  # only the total count is needed, not the events themselves
+        "size": "3",  # a few real event names for the description, not just the count
         "apikey": settings.ticketmaster_api_key,
     }
 
@@ -81,13 +87,28 @@ async def _fetch_live_density(lat: float, lng: float) -> float | None:
         try:
             resp = await client.get(DISCOVERY_EVENTS_URL, params=params)
             resp.raise_for_status()
-            total = resp.json().get("page", {}).get("totalElements", 0)
+            body = resp.json()
+            total = body.get("page", {}).get("totalElements", 0)
+            events = body.get("_embedded", {}).get("events", [])
         except (httpx.HTTPError, ValueError, KeyError):
             return None
 
-    return _density_from_count(total)
+    density = _density_from_count(total)
+    description = _describe(total, events)
+    return EventReading(density=density, description=description)
 
 
 def _density_from_count(count: int) -> float:
     density = math.log10(count + 1) / math.log10(_DENSITY_LOG_CAP + 1)
     return round(min(max(density, 0.0), 1.0), 2)
+
+
+def _describe(total: int, sample_events: list[dict]) -> str:
+    if total == 0:
+        return f"No major events today within {SEARCH_RADIUS_KM}km"
+    if total == 1 and sample_events:
+        return f"1 event today: {sample_events[0].get('name', 'an event nearby')}"
+    example = sample_events[0].get("name") if sample_events else None
+    if example:
+        return f"{total} events today, including {example}"
+    return f"{total} events happening today nearby"

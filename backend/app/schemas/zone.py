@@ -12,9 +12,21 @@ class ZoneSignals(BaseModel):
     event_density: float = Field(ge=0, le=1)
 
 
+class SignalDetails(BaseModel):
+    """One plain-language sentence per signal, explaining what's actually
+    behind its number (which road, which line, etc.) rather than just the
+    blended 0-1 value."""
+
+    traffic: str
+    transit: str
+    weather: str
+    events: str
+
+
 class ZoneScoreOut(BaseModel):
     id: str
     name: str
     score: float
     signals: ZoneSignals
+    details: SignalDetails
     geometry: dict[str, Any]

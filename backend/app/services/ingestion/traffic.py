@@ -13,6 +13,7 @@ the average of their severities.
 import asyncio
 import json
 import time
+from typing import NamedTuple
 
 import httpx
 
@@ -38,11 +39,16 @@ _roads_cache: tuple[list[dict], float] | None = None
 _roads_lock = asyncio.Lock()
 
 _CONGESTION_CACHE_TTL_SECONDS = 300
-_congestion_cache: dict[BBox, tuple[float, float]] = {}
+_congestion_cache: dict[BBox, tuple["TrafficReading", float]] = {}
 
 
-async def fetch_traffic_congestion(bbox: BBox) -> float | None:
-    """Return a 0-1 congestion score for a zone's bounding box, or None if unavailable."""
+class TrafficReading(NamedTuple):
+    congestion: float  # 0-1
+    description: str  # plain-language summary naming the worst matched road(s)
+
+
+async def fetch_traffic_congestion(bbox: BBox) -> TrafficReading | None:
+    """Return a congestion reading for a zone's bounding box, or None if unavailable."""
     key = tuple(round(v, 3) for v in bbox)
     now = time.monotonic()
 
@@ -54,17 +60,18 @@ async def fetch_traffic_congestion(bbox: BBox) -> float | None:
     if roads is None:
         return None
 
-    matched_scores = [
-        _SEVERITY_SCORES.get(road["statusSeverity"].lower(), _UNKNOWN_SEVERITY_SCORE)
-        for road in roads
-        if _bboxes_overlap(bbox, road["bounds"])
-    ]
-    if not matched_scores:
+    matched = [road for road in roads if _bboxes_overlap(bbox, road["bounds"])]
+    if not matched:
         return None
 
-    congestion = round(sum(matched_scores) / len(matched_scores), 2)
-    _congestion_cache[key] = (congestion, now)
-    return congestion
+    scores = [
+        _SEVERITY_SCORES.get(road["statusSeverity"].lower(), _UNKNOWN_SEVERITY_SCORE)
+        for road in matched
+    ]
+    congestion = round(sum(scores) / len(scores), 2)
+    reading = TrafficReading(congestion=congestion, description=_describe(matched))
+    _congestion_cache[key] = (reading, now)
+    return reading
 
 
 async def _fetch_roads() -> list[dict] | None:
@@ -105,3 +112,17 @@ def _bboxes_overlap(zone_bbox: BBox, road_bounds_json: str) -> bool:
     return zone_min_lat <= road_max_lat and zone_max_lat >= road_min_lat and (
         zone_min_lng <= road_max_lng and zone_max_lng >= road_min_lng
     )
+
+
+def _describe(matched: list[dict]) -> str:
+    worst_first = sorted(
+        matched,
+        key=lambda r: _SEVERITY_SCORES.get(r["statusSeverity"].lower(), _UNKNOWN_SEVERITY_SCORE),
+        reverse=True,
+    )
+    if _SEVERITY_SCORES.get(worst_first[0]["statusSeverity"].lower(), _UNKNOWN_SEVERITY_SCORE) <= 0.1:
+        return f"Roads flowing normally ({len(matched)} corridors checked)"
+
+    names = [r["displayName"] for r in worst_first[:2]]
+    status = worst_first[0]["statusSeverityDescription"]
+    return f"{' and '.join(names)}: {status.lower()}"

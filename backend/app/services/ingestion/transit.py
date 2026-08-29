@@ -27,6 +27,7 @@ zones in a real /zones response showed the *exact* same transit_delay.
 
 import asyncio
 import time
+from typing import NamedTuple
 
 import httpx
 
@@ -37,46 +38,60 @@ TFL_MODES = "tube,dlr,overground,elizabeth-line,tram"
 TFL_LINE_STATUS_URL = f"https://api.tfl.gov.uk/Line/Mode/{TFL_MODES}/Status"
 USER_AGENT = "Metronome/0.1 (+https://github.com/amirabenbouali/metronome)"
 MAX_CONCURRENT_STOP_REQUESTS = 5
+GOOD_SERVICE_SEVERITY = 10
+
+
+class LineStatus(NamedTuple):
+    name: str  # e.g. "Northern"
+    severity: int  # TfL's statusSeverity; 10 = Good Service, lower is worse
+    description: str  # e.g. "Minor Delays"
+
+
+class TransitReading(NamedTuple):
+    delay: float  # 0-1
+    description: str  # plain-language summary naming the worst matched line(s)
+
 
 _TOPOLOGY_CACHE_TTL_SECONDS = 86_400  # station geography doesn't change day to day
 _topology_cache: tuple[dict[str, list[tuple[float, float]]], float] | None = None
 _topology_lock = asyncio.Lock()
 
-_SEVERITY_CACHE_TTL_SECONDS = 120  # service status can change quickly
-_severity_cache: tuple[dict[str, float], float] | None = None
-_severity_lock = asyncio.Lock()
+_STATUS_CACHE_TTL_SECONDS = 120  # service status can change quickly
+_status_cache: tuple[dict[str, LineStatus], float] | None = None
+_status_lock = asyncio.Lock()
 
-_DELAY_CACHE_TTL_SECONDS = 120
-_delay_cache: dict[BBox, tuple[float, float]] = {}
+_READING_CACHE_TTL_SECONDS = 120
+_reading_cache: dict[BBox, tuple[TransitReading, float]] = {}
 
 
-async def fetch_transit_delay(bbox: BBox) -> float | None:
-    """Return a 0-1 transit delay score for a zone's bounding box, or None if unavailable."""
+async def fetch_transit_delay(bbox: BBox) -> TransitReading | None:
+    """Return a transit delay reading for a zone's bounding box, or None if unavailable."""
     key = tuple(round(v, 3) for v in bbox)
     now = time.monotonic()
 
-    cached = _delay_cache.get(key)
-    if cached is not None and now - cached[1] < _DELAY_CACHE_TTL_SECONDS:
+    cached = _reading_cache.get(key)
+    if cached is not None and now - cached[1] < _READING_CACHE_TTL_SECONDS:
         return cached[0]
 
-    topology, severities = await asyncio.gather(_fetch_topology(), _fetch_line_severities())
-    if topology is None or severities is None:
+    topology, statuses = await asyncio.gather(_fetch_topology(), _fetch_line_statuses())
+    if topology is None or statuses is None:
         return None
 
-    matched_lines = [
+    matched_ids = [
         line_id
         for line_id, stations in topology.items()
         if any(_point_in_bbox(bbox, lat, lon) for lat, lon in stations)
     ]
-    matched_severities = [severities[line_id] for line_id in matched_lines if line_id in severities]
-    if not matched_severities:
+    matched = [statuses[line_id] for line_id in matched_ids if line_id in statuses]
+    if not matched:
         return None
 
-    avg_status_severity = sum(matched_severities) / len(matched_severities)
+    avg_severity = sum(s.severity for s in matched) / len(matched)
     # 10 = Good Service -> 0 delay; each point below scales delay up.
-    delay = round(min(max((10 - avg_status_severity) / 10, 0.0), 1.0), 2)
-    _delay_cache[key] = (delay, now)
-    return delay
+    delay = round(min(max((GOOD_SERVICE_SEVERITY - avg_severity) / GOOD_SERVICE_SEVERITY, 0.0), 1.0), 2)
+    reading = TransitReading(delay=delay, description=_describe(matched))
+    _reading_cache[key] = (reading, now)
+    return reading
 
 
 async def _fetch_topology() -> dict[str, list[tuple[float, float]]] | None:
@@ -126,18 +141,15 @@ async def _fetch_line_stops(
     return [(stop["lat"], stop["lon"]) for stop in stops if "lat" in stop and "lon" in stop]
 
 
-async def _fetch_line_severities() -> dict[str, float] | None:
-    global _severity_cache
+async def _fetch_line_statuses() -> dict[str, LineStatus] | None:
+    global _status_cache
 
-    if _severity_cache is not None and time.monotonic() - _severity_cache[1] < _SEVERITY_CACHE_TTL_SECONDS:
-        return _severity_cache[0]
+    if _status_cache is not None and time.monotonic() - _status_cache[1] < _STATUS_CACHE_TTL_SECONDS:
+        return _status_cache[0]
 
-    async with _severity_lock:
-        if (
-            _severity_cache is not None
-            and time.monotonic() - _severity_cache[1] < _SEVERITY_CACHE_TTL_SECONDS
-        ):
-            return _severity_cache[0]
+    async with _status_lock:
+        if _status_cache is not None and time.monotonic() - _status_cache[1] < _STATUS_CACHE_TTL_SECONDS:
+            return _status_cache[0]
 
         headers = {"User-Agent": USER_AGENT}
         async with httpx.AsyncClient(timeout=5.0, headers=headers) as client:
@@ -148,18 +160,33 @@ async def _fetch_line_severities() -> dict[str, float] | None:
             except httpx.HTTPError:
                 return None
 
-        severities: dict[str, float] = {}
+        statuses: dict[str, LineStatus] = {}
         for line in lines:
-            statuses = line.get("lineStatuses") or []
-            if not statuses:
+            line_statuses = line.get("lineStatuses") or []
+            if not line_statuses:
                 continue
             # A line can carry multiple simultaneous statuses; use the worst one.
-            severities[line["id"]] = min(s["statusSeverity"] for s in statuses)
+            worst = min(line_statuses, key=lambda s: s["statusSeverity"])
+            statuses[line["id"]] = LineStatus(
+                name=line["name"],
+                severity=worst["statusSeverity"],
+                description=worst["statusSeverityDescription"],
+            )
 
-        _severity_cache = (severities, time.monotonic())
-        return severities
+        _status_cache = (statuses, time.monotonic())
+        return statuses
 
 
 def _point_in_bbox(bbox: BBox, lat: float, lon: float) -> bool:
     min_lat, max_lat, min_lng, max_lng = bbox
     return min_lat <= lat <= max_lat and min_lng <= lon <= max_lng
+
+
+def _describe(matched: list[LineStatus]) -> str:
+    worst_first = sorted(matched, key=lambda s: s.severity)
+    if worst_first[0].severity >= GOOD_SERVICE_SEVERITY:
+        return f"All lines running normally ({len(matched)} checked)"
+
+    worst_severity = worst_first[0].severity
+    worst_names = [s.name for s in worst_first if s.severity == worst_severity][:2]
+    return f"{' and '.join(worst_names)} line{'s' if len(worst_names) > 1 else ''}: {worst_first[0].description.lower()}"

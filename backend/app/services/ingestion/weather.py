@@ -6,6 +6,7 @@ https://open-meteo.com/en/docs
 """
 
 import time
+from typing import NamedTuple
 
 import httpx
 
@@ -13,11 +14,16 @@ OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
 USER_AGENT = "Metronome/0.1 (+https://github.com/amirabenbouali/metronome)"
 
 _CACHE_TTL_SECONDS = 600
-_cache: dict[tuple[float, float], tuple[float, float]] = {}  # (lat, lng) -> (severity, fetched_at)
+_cache: dict[tuple[float, float], tuple["WeatherReading", float]] = {}
 
 
-async def fetch_weather_severity(lat: float, lng: float) -> float | None:
-    """Return a 0-1 weather severity score for a point, or None if unavailable."""
+class WeatherReading(NamedTuple):
+    severity: float  # 0-1
+    description: str  # plain-language summary, e.g. "21°C, calm winds"
+
+
+async def fetch_weather(lat: float, lng: float) -> WeatherReading | None:
+    """Return a weather reading for a point, or None if unavailable."""
     key = (round(lat, 2), round(lng, 2))
     now = time.monotonic()
 
@@ -25,13 +31,13 @@ async def fetch_weather_severity(lat: float, lng: float) -> float | None:
     if cached is not None and now - cached[1] < _CACHE_TTL_SECONDS:
         return cached[0]
 
-    severity = await _fetch_live_severity(lat, lng)
-    if severity is not None:
-        _cache[key] = (severity, now)
-    return severity
+    reading = await _fetch_live_reading(lat, lng)
+    if reading is not None:
+        _cache[key] = (reading, now)
+    return reading
 
 
-async def _fetch_live_severity(lat: float, lng: float) -> float | None:
+async def _fetch_live_reading(lat: float, lng: float) -> WeatherReading | None:
     params = {
         "latitude": f"{lat:.4f}",
         "longitude": f"{lng:.4f}",
@@ -47,10 +53,10 @@ async def _fetch_live_severity(lat: float, lng: float) -> float | None:
         except (httpx.HTTPError, KeyError, TypeError):
             return None
 
-    return _severity_from_current(current)
+    return _reading_from_current(current)
 
 
-def _severity_from_current(current: dict) -> float:
+def _reading_from_current(current: dict) -> WeatherReading:
     wind_kmh = current.get("wind_speed_10m") or 0.0
     gust_kmh = current.get("wind_gusts_10m") or 0.0
     precip_mm = current.get("precipitation") or 0.0
@@ -65,5 +71,20 @@ def _severity_from_current(current: dict) -> float:
         elif temp_c <= 0 or temp_c >= 30:
             temp_component = 0.5
 
-    severity = max(wind_component, precip_component, temp_component)
-    return round(min(severity, 1.0), 2)
+    severity = round(min(max(wind_component, precip_component, temp_component), 1.0), 2)
+    description = _describe(temp_c, wind_kmh, gust_kmh, precip_mm, severity)
+    return WeatherReading(severity=severity, description=description)
+
+
+def _describe(
+    temp_c: float | None, wind_kmh: float, gust_kmh: float, precip_mm: float, severity: float
+) -> str:
+    temp_text = f"{round(temp_c)}°C" if temp_c is not None else "temperature unavailable"
+
+    if severity < 0.15:
+        return f"{temp_text}, calm conditions"
+    if precip_mm >= 15 * severity and precip_mm > 2:
+        return f"{temp_text}, rain ({precip_mm:.1f}mm/hr)"
+    if max(wind_kmh, gust_kmh) / 60.0 >= severity - 0.01:
+        return f"{temp_text}, windy ({round(max(wind_kmh, gust_kmh))} km/h gusts)"
+    return f"{temp_text}, extreme temperature"
