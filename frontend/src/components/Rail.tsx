@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { LAYER_OPTIONS, type LayerKey } from "../lib/layers";
 import { SCORE_BANDS, scoreState, scoreStateColor } from "../lib/scoreState";
@@ -28,13 +28,30 @@ export default function Rail({
   onSelectZone,
 }: RailProps) {
   const [openPopover, setOpenPopover] = useState<PopoverKey>(null);
+  const railRef = useRef<HTMLElement>(null);
 
   const togglePopover = (key: Exclude<PopoverKey, null>) => {
     setOpenPopover((current) => (current === key ? null : key));
   };
 
+  // Popovers are positioned outside the rail's own 72px-wide box, so a
+  // plain onMouseLeave on the rail closed them the instant the cursor moved
+  // from the icon toward the popover to click something in it. A real
+  // click-outside check (they're still DOM descendants of the rail, so
+  // clicks inside them don't count as "outside") makes it an actual toggle.
+  useEffect(() => {
+    if (!openPopover) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (railRef.current && !railRef.current.contains(e.target as Node)) {
+        setOpenPopover(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [openPopover]);
+
   return (
-    <aside className="rail" onMouseLeave={() => setOpenPopover(null)}>
+    <aside className="rail" ref={railRef}>
       <div className="logo">M</div>
       <nav className="nav">
         <button className="icon active" type="button" title="Map">

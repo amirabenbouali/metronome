@@ -489,6 +489,47 @@ h1 {
   line-height: 1.45;
 }
 
+.events-toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.events-toggle:hover {
+  text-decoration: underline;
+}
+
+.events-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.events-list li {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--soft);
+}
+
+.events-loading {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 .timestamp {
   position: absolute;
   left: 26px;

@@ -1,14 +1,14 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.zone import Zone
 from app.schemas.zone import ZoneScoreOut
-from app.services.ingestion.events import fetch_event_density
+from app.services.ingestion.events import fetch_all_events, fetch_event_density
 from app.services.ingestion.traffic import fetch_traffic_congestion
 from app.services.ingestion.transit import fetch_transit_delay
 from app.services.ingestion.weather import fetch_weather
@@ -90,7 +90,31 @@ async def list_zones(db: AsyncSession = Depends(get_db)) -> list[ZoneScoreOut]:
                 score=compute_zone_score(signals),
                 signals=signals,
                 details=details,
+                event_count=events.count if events else 0,
+                events=events.events if events else [],
                 geometry=json.loads(geojson),
             )
         )
     return zones
+
+
+@router.get("/zones/{slug}/events", response_model=list[str])
+async def get_zone_events(slug: str, db: AsyncSession = Depends(get_db)) -> list[str]:
+    """Return every event today near one zone, fetched fresh on demand.
+
+    The main /zones list only ever carries a small sample (see
+    ingestion/events.py's SAMPLE_SIZE) since it fans out to all 33 zones
+    every 30-second poll - this exists for "show me everything" for one
+    zone at a time, which a single size=200 Ticketmaster request covers in
+    practice (confirmed live: Westminster's ~160/day fit on one page).
+    """
+    stmt = select(
+        func.ST_Y(func.ST_Centroid(Zone.geom)), func.ST_X(func.ST_Centroid(Zone.geom))
+    ).where(Zone.slug == slug)
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Unknown zone: {slug}")
+
+    lat, lng = row
+    events = await fetch_all_events(lat, lng)
+    return events or []

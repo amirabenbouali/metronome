@@ -29,4 +29,6 @@ class ZoneScoreOut(BaseModel):
     score: float
     signals: ZoneSignals
     details: SignalDetails
+    event_count: int
+    events: list[str]
     geometry: dict[str, Any]

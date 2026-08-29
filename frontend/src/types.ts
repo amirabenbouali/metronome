@@ -18,5 +18,7 @@ export interface ZoneScore {
   score: number;
   signals: ZoneSignals;
   details: SignalDetails;
+  event_count: number;
+  events: string[];
   geometry: GeoJSON.Geometry;
 }

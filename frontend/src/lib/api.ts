@@ -17,3 +17,11 @@ export async function getZones(): Promise<ZoneScore[]> {
   }
   return res.json();
 }
+
+export async function getZoneEvents(id: string): Promise<string[]> {
+  const res = await fetch(`${API_BASE_URL}/zones/${encodeURIComponent(id)}/events`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch events for ${id}: ${res.status}`);
+  }
+  return res.json();
+}
