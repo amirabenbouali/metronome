@@ -58,7 +58,7 @@ export default function Rail({
           ◉
         </button>
 
-        <div>
+        <div className="rail-item">
           <button
             className={`icon${openPopover === "layers" ? " active" : ""}`}
             type="button"
@@ -95,7 +95,7 @@ export default function Rail({
           ≋
         </button>
 
-        <div>
+        <div className="rail-item">
           <button
             className={`icon${openPopover === "alerts" ? " active" : ""}`}
             type="button"
@@ -128,7 +128,7 @@ export default function Rail({
           )}
         </div>
 
-        <div>
+        <div className="rail-item">
           <button
             className={`icon${openPopover === "events" ? " active" : ""}`}
             type="button"
@@ -161,7 +161,7 @@ export default function Rail({
           )}
         </div>
 
-        <div>
+        <div className="rail-item">
           <button
             className={`icon${openPopover === "info" ? " active" : ""}`}
             type="button"

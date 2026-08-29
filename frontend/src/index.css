@@ -107,6 +107,10 @@ button {
   box-shadow: 0 0 0 2px rgba(7, 9, 13, 0.94);
 }
 
+.rail-item {
+  position: relative;
+}
+
 .rail-popover {
   position: absolute;
   left: 52px;
