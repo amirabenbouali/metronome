@@ -101,6 +101,10 @@ export default function App() {
     })
     .sort((a, b) => b.score - a.score);
 
+  const eventZones = zones
+    .filter((z) => z.signals.event_density > 0)
+    .sort((a, b) => b.signals.event_density - a.signals.event_density);
+
   return (
     <div className="app">
       <Rail
@@ -110,6 +114,7 @@ export default function App() {
         signalsPanelVisible={signalsPanelVisible}
         onToggleSignalsPanel={() => setSignalsPanelVisible((v) => !v)}
         alertZones={alertZones}
+        eventZones={eventZones}
         onSelectZone={handleSelectZone}
       />
       <section className="workspace">

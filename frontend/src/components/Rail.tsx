@@ -4,7 +4,7 @@ import { LAYER_OPTIONS, type LayerKey } from "../lib/layers";
 import { SCORE_BANDS, scoreState, scoreStateColor } from "../lib/scoreState";
 import type { ZoneScore } from "../types";
 
-type PopoverKey = "layers" | "alerts" | "info" | null;
+type PopoverKey = "layers" | "alerts" | "events" | "info" | null;
 
 interface RailProps {
   live: boolean;
@@ -13,6 +13,7 @@ interface RailProps {
   signalsPanelVisible: boolean;
   onToggleSignalsPanel: () => void;
   alertZones: ZoneScore[];
+  eventZones: ZoneScore[];
   onSelectZone: (id: string) => void;
 }
 
@@ -23,6 +24,7 @@ export default function Rail({
   signalsPanelVisible,
   onToggleSignalsPanel,
   alertZones,
+  eventZones,
   onSelectZone,
 }: RailProps) {
   const [openPopover, setOpenPopover] = useState<PopoverKey>(null);
@@ -102,6 +104,39 @@ export default function Rail({
                     }}
                   >
                     {zone.name} · {scoreState(zone.score)}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <button
+            className={`icon${openPopover === "events" ? " active" : ""}`}
+            type="button"
+            title="Events"
+            onClick={() => togglePopover("events")}
+          >
+            ✦
+          </button>
+          {openPopover === "events" && (
+            <div className="rail-popover events-popover">
+              {eventZones.length === 0 ? (
+                <div className="rail-popover-empty">No events found nearby right now</div>
+              ) : (
+                eventZones.map((zone) => (
+                  <button
+                    key={zone.id}
+                    type="button"
+                    className="rail-popover-item detailed"
+                    onClick={() => {
+                      onSelectZone(zone.id);
+                      setOpenPopover(null);
+                    }}
+                  >
+                    <strong>{zone.name}</strong>
+                    <span>{zone.details.events}</span>
                   </button>
                 ))
               )}
