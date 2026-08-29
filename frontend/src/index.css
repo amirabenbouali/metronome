@@ -600,7 +600,48 @@ h1 {
     grid-template-columns: 1fr;
   }
   .rail {
-    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    z-index: 30;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 60px;
+    padding: 0 12px;
+    padding-bottom: env(safe-area-inset-bottom);
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+  .logo {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+  }
+  .nav {
+    flex-direction: row;
+    justify-content: space-around;
+    flex: 1;
+    margin-top: 0;
+    gap: 2px;
+  }
+  .live {
+    margin-top: 0;
+    margin-left: 8px;
+    flex-shrink: 0;
+  }
+  .rail-popover,
+  .events-popover,
+  .info-popover {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: 52px;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 24px);
   }
   .workspace {
     grid-template-rows: 84px 1fr;
@@ -614,16 +655,24 @@ h1 {
   h1 {
     font-size: 30px;
   }
+  /* Signals panel (top) and zone card (bottom) share the stage between the
+     84px topbar and 60px nav bar - each capped at half of what's left (minus
+     their own offsets and a 20px gap) so the two can never collide, however
+     tall the zone card's content gets. Both scroll internally past that. */
   .signals {
     left: 14px;
     top: 14px;
     width: 185px;
+    max-height: calc((100vh - 252px) / 2);
+    overflow-y: auto;
   }
   .zonecard {
     left: 14px;
     right: 14px;
-    bottom: 14px;
+    bottom: 74px;
     width: auto;
+    max-height: calc((100vh - 252px) / 2);
+    overflow-y: auto;
   }
   .legend,
   .timestamp {

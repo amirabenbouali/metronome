@@ -28,7 +28,12 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   const [activeLayer, setActiveLayer] = useState<LayerKey>("score");
-  const [signalsPanelVisible, setSignalsPanelVisible] = useState(true);
+  // Defaults closed on narrow viewports so it doesn't collide with the zone
+  // card - matches the .rail mobile breakpoint in index.css. Reachable via
+  // the mobile nav's toggle either way.
+  const [signalsPanelVisible, setSignalsPanelVisible] = useState(
+    () => window.matchMedia("(min-width: 801px)").matches,
+  );
   // A fresh object each time, even for the same zone id, so MapView's
   // effect (keyed on this reference) fires again if you search the same
   // borough twice in a row.
