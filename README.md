@@ -83,11 +83,14 @@ Live stack: **Supabase** (Postgres + PostGIS), **Render** (backend), **Vercel** 
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. In the SQL Editor, run `create extension if not exists postgis;`.
-3. Copy the connection string from **Project Settings → Database** (use the direct connection, not the pooler - a single always-on backend instance doesn't need connection pooling).
-4. Seed it once, from your machine, pointing at Supabase instead of local Postgres:
+3. Click **Connect** (top of the project dashboard) and copy the **Session pooler** connection string - not "Direct connection". Newer Supabase projects don't expose a resolvable direct-connection host at all (confirmed via a live NXDOMAIN, not just an IPv6 quirk); the session pooler is IPv4-reachable and, unlike the transaction pooler, behaves like a normal persistent connection - the right fit for an always-on backend like this one. It looks like `postgresql://postgres.<project-ref>:<password>@aws-<N>-<region>.pooler.supabase.com:5432/postgres`.
+4. Run the schema migration once against it, then seed it, from your machine:
    ```bash
    cd backend
-   DATABASE_URL="<supabase connection string, with +asyncpg after postgresql>" \
+   DATABASE_URL="<connection string, with +asyncpg after postgresql>" \
+   DATABASE_SSL=true \
+     alembic upgrade head
+   DATABASE_URL="<same connection string>" \
    DATABASE_SSL=true \
      python -m scripts.seed_zones
    ```

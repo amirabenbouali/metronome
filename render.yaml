@@ -8,7 +8,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        sync: false # set to your Supabase connection string
+        sync: false # Supabase's Session pooler string, not Direct connection - see README
       - key: DATABASE_SSL
         value: "true"
       - key: CORS_ORIGINS
